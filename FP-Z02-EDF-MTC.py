@@ -13,9 +13,10 @@ from PIL import Image
 
 warnings.filterwarnings("ignore")
 
-# ---------------------------
-# Config / Mappings
-# ---------------------------
+# ════════════════════════════════════════════════════
+# CONFIGURACIÓN GLOBAL
+# ════════════════════════════════════════════════════
+
 VARIABLES_SUELO_MAP = {
     "pH": {"label": "pH (1:1)", "unit": "", "desc": "Acidez del suelo"},
     "Cea": {"label": "Conductividad eléctrica (dS/m)", "unit": "dS/m", "desc": "Salinidad del suelo"},
@@ -72,10 +73,6 @@ DIMENSIONES_CORR = {
     "Micronutrientes y textura": ["B","Cu","Fe","Mn","Zn","S","Fe_Mn","A","L","Ar"],
 }
 
-# ---------------------------
-# Page config & styles
-# ---------------------------
-
 st.set_page_config(
     page_title="Dashboard Suelos Palma",
     page_icon="🌴",
@@ -84,17 +81,16 @@ st.set_page_config(
 )
 
 COLORS = {
-    "primary":  "#1b60a7",
-    "success":  "#2ca02c",
-    "danger":   "#d62728",
-    "warning":  "#F1C40F",
-    "info":     "#E74C3C",
-    "bg":       "#F0F4F8",
+    "primary": "#1b60a7",
+    "success": "#2ca02c",
+    "danger": "#d62728",
+    "warning": "#F1C40F",
+    "info": "#E74C3C",
+    "bg": "#F0F4F8",
 }
 
 def sanitize_key(s):
     return str(s).replace(" ", "_").replace("/", "_").replace("-", "_").replace(".", "_").replace("(", "").replace(")", "")
-
 
 # ════════════════════════════════════════════════════
 # CSS PERSONALIZADO
@@ -151,9 +147,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------
-# Helpers: col finding, cleaning, loading
-# ---------------------------
+# ════════════════════════════════════════════════════
+# 1. CARGA Y PREPARACIÓN DE DATOS
+# ════════════════════════════════════════════════════
+
 COMMON_LAT_COLS = ["lat", "latitude", "latitud", "y", "latitud_gps"]
 COMMON_LON_COLS = ["lon", "lng", "longitude", "longitud", "x", "longitud_gps"]
 COMMON_DEPTH_COLS = ["prof", "profundidad", "depth"]
@@ -255,9 +252,10 @@ def cargar_suelos(file_or_path):
 
     return df, gdf, canonical
 
-# ---------------------------
-# Visual helpers (plot, stats, etc.)
-# ---------------------------
+# ════════════════════════════════════════════════════
+# 2. FUNCIONES DE GRÁFICOS
+# ════════════════════════════════════════════════════
+
 def _step_colorscale(cmin, t1, t2, cmax, low="#2c7bb6", mid="#ffffbf", high="#d7191c"):
     if cmax == cmin: return [(0.0, mid), (1.0, mid)]
     p1 = (t1 - cmin) / (cmax - cmin); p2 = (t2 - cmin) / (cmax - cmin)
@@ -353,9 +351,6 @@ def tabla_estadisticos_globales(df: pd.DataFrame, var: str):
     fig.update_layout(margin=dict(t=10, l=0, r=0, b=0), height=360, paper_bgcolor="rgba(0,0,0,0)")
     return fig
 
-# ---------------------------
-# Ranking Top-N function (mean aggregation)
-# ---------------------------
 def plot_topn_ranking_by_var(df, var, top_n=10):
     if var not in df.columns or "Lote" not in df.columns: return go.Figure(layout=go.Layout(title="No hay datos para ranking."))
     df_v = df[["Lote", var]].replace([np.inf, -np.inf], np.nan).dropna()
@@ -371,10 +366,60 @@ def plot_topn_ranking_by_var(df, var, top_n=10):
     fig.update_xaxes(tickangle=45)
     return fig
 
-# ---------------------------
-# Modular render functions for each tab
-# ---------------------------
+# ════════════════════════════════════════════════════
+# 3. SECCIONES DEL DASHBOARD
+# ════════════════════════════════════════════════════
+
+def seccion_kpis(df: pd.DataFrame):
+    c1, c2, c3, c4 = st.columns(4)
+    n = df.shape[0]
+    n_fincas = df["Finca"].nunique() if "Finca" in df.columns else 0
+    n_lotes = df["Lote"].nunique() if "Lote" in df.columns else 0
+    c1.markdown(f"<div class='kpi-card'><div class='kpi-label'>Registros</div><div class='kpi-value'>{n}</div></div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='kpi-card'><div class='kpi-label'>Fincas</div><div class='kpi-value'>{n_fincas}</div></div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Lotes</div><div class='kpi-value'>{n_lotes}</div></div>", unsafe_allow_html=True)
+
 def render_tab_map_overview(df_vis, lat_col, lon_col, selected_var, map_mode, lote_col, finca_col, prof_col):
+
+    st.markdown('<div class="section-title">🧾 Resumen rápido</div>', unsafe_allow_html=True)
+
+    if selected_var and selected_var in df_vis.columns:
+        serie = pd.to_numeric(df_vis[selected_var].astype(str).str.replace(",", "."), errors="coerce").dropna()
+        if serie.empty:
+            st.info(f"No hay valores numéricos para `{selected_var}` después del filtrado.")
+        else:
+            mean_val = float(serie.mean())
+            median_val = float(serie.median())
+            std_val = float(serie.std())
+            min_val = float(serie.min())
+            max_val = float(serie.max())
+            pct_missing = int(df_vis[selected_var].isna().sum())
+
+            # Métricas compactas
+            st.markdown(f"- Media: **{mean_val:.2f}** · Mediana: **{median_val:.2f}**")
+            st.markdown(
+                f"- Rango: **{min_val:.2f} — {max_val:.2f}** · Std: **{std_val:.2f}** · Faltantes: **{pct_missing}**")
+
+            # Percentiles
+            p10, p25, p75, p90 = [float(x) for x in np.percentile(serie, [10, 25, 75, 90])]
+            st.markdown(f"- P10 / P25 / P75 / P90: **{p10:.2f} / {p25:.2f} / {p75:.2f} / {p90:.2f}**")
+
+            # Descarga de muestra (no modifica datos)
+            try:
+                sample = df_map_summary[
+                    [lat_col, lon_col] + ([selected_var] if selected_var in df_map_summary.columns else [])].head(1000)
+                sample_csv = sample.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇️ Descargar muestra (mapa) 1k filas", sample_csv,
+                                   file_name=sanitize_key(f"map_sample_{selected_var}.csv"),
+                                   mime="text/csv",
+                                   key=sanitize_key(f"dl_map_sample_{selected_var}"))
+            except Exception:
+                pass
+
+    st.markdown(
+        "<small><em>Nota:</em> las capas de densidad son estimaciones (kernel); interpretarlas con cautela.</small>",
+        unsafe_allow_html=True)
+
     st.markdown('<div class="section-title">🗺️ Mapa y resumen espacial</div>', unsafe_allow_html=True)
     col_map, col_side = st.columns([3,1])
     with col_map:
@@ -405,7 +450,7 @@ def render_tab_map_overview(df_vis, lat_col, lon_col, selected_var, map_mode, lo
                 if size_arg is not None: kwargs.update(dict(size=size_arg, size_max=6))
                 color_arg = selected_var if (selected_var in df_map_plot.columns) else None
                 fig_map_pts = px.scatter_mapbox(df_map_plot, color=color_arg, **kwargs)
-                
+
                 fig_map_pts.update_layout(
                     hovermode="closest",
                     mapbox_style="open-street-map",
@@ -421,7 +466,7 @@ def render_tab_map_overview(df_vis, lat_col, lon_col, selected_var, map_mode, lo
                         "north": float(df_map_plot["Latitud"].max() + padding),
                     }
                 )
-                
+
                 st.plotly_chart(fig_map_pts, width="stretch", key=sanitize_key(f"map_points_{selected_var}_{map_mode}"))
             else:
                 d = df_map_plot.dropna(subset=[selected_var]) if selected_var else df_map_plot
@@ -434,7 +479,7 @@ def render_tab_map_overview(df_vis, lat_col, lon_col, selected_var, map_mode, lo
                                                     radius=12, center={"lat": float(d[lat_col].median()),
                                                     "lon": float(d[lon_col].median())},
                                                     color_continuous_scale="Spectral",
-                                                    zoom=10, height=520)                                        
+                                                    zoom=10, height=520)
 
                     fig_map_den.update_layout(
                         hovermode="closest",
@@ -449,7 +494,6 @@ def render_tab_map_overview(df_vis, lat_col, lon_col, selected_var, map_mode, lo
                         margin=dict(l=0,r=0,t=0,b=0),
                         )
 
-                    # Padding para bounds
                     padding = 0.08
                     fig_map_den.update_layout(
                         mapbox_bounds={
@@ -478,43 +522,38 @@ def render_tab_map_overview(df_vis, lat_col, lon_col, selected_var, map_mode, lo
                 st.plotly_chart(plot_distplot(serie, metric=selected_var), width="stretch", key=sanitize_key(f"map_overview_dist_{selected_var}"))
 
 def render_tab_distribution(df_vis, selected_var, lote_col):
-    """
-    Layout:
-    - Top row: Boxplot (left) | Stats table (right)
-    - Bottom row: Ranking Top-N (left) | Controls (right)
-    - Overlay de medianas en el boxplot (línea y puntos verdes)
-    - Export button para Top-N
-
-    Comportamiento del ranking:
-    - Si `selected_var` (variable seleccionada en sidebar) está presente, se usa por defecto.
-    - El usuario puede activar "Elegir otra variable para el ranking" para escoger otra variable distinta.
-    """
     st.markdown('<div class="section-title">📊 Distribución y Boxplots</div>', unsafe_allow_html=True)
 
-    # Helper interno: crear df Top-N (usa lote_col si está definido)
+    # fallback sizes similar a producción (si no están definidas globalmente)
+    RANKING_SIZES_LOCAL = st.session_state.get("RANKING_SIZES", [5, 10, 15, 20])
+
     def generate_topn_df(df, var, n, lote_column):
         if var is None or var not in df.columns:
             return pd.DataFrame()
         df_tmp = df.dropna(subset=[var])
         lote_col_local = lote_column if lote_column in df_tmp.columns else "Lote"
+        if lote_col_local not in df_tmp.columns:
+            possible = [c for c in df_tmp.columns if any(k in c.lower() for k in ("lote","parcela","plot","lot"))]
+            lote_col_local = possible[0] if possible else None
+            if lote_col_local is None:
+                df_tmp = df_tmp.reset_index().rename(columns={"index": "Lote"})
+                lote_col_local = "Lote"
         rank_df = df_tmp.groupby(lote_col_local)[var].mean().reset_index().rename(columns={var: "mean_val", lote_col_local: "Lote"})
         rank_df = rank_df.sort_values("mean_val", ascending=False).head(n)
         return rank_df
 
-    # Estructura: dos filas
     top_left, top_right = st.columns([3, 1])   # Boxplot | Stats
     bot_left, bot_right = st.columns([3, 1])   # Ranking | Controls
 
-    # --- TOP ROW: Boxplot (left) & Stats (right)
+    # --------- BOXPLOT (sin resaltar medias por lote; con línea de media global) ----------
     with top_left:
         if selected_var is None:
             st.info("Selecciona una variable numérica en la barra lateral.")
         else:
             st.markdown("#### Boxplot por Lote / Profundidad")
-            # obtener figura base (boxplot)
             try:
                 if lote_col and lote_col in df_vis.columns:
-                    fig_box = plot_boxplot_por_lote(df_vis, selected_var)  # debe devolver fig de plotly
+                    fig_box = plot_boxplot_por_lote(df_vis, selected_var)
                 elif "Prof_Cat" in df_vis.columns:
                     fig_box = plot_boxplot_por_profundidad(df_vis, selected_var)
                 else:
@@ -524,31 +563,28 @@ def render_tab_distribution(df_vis, selected_var, lote_col):
                 st.exception(e)
                 fig_box = None
 
-            # Overlay: línea y puntos de la mediana por Lote (ordenada por mediana ascendente)
             try:
                 if fig_box is not None:
-                    lote_col_local = lote_col if lote_col in df_vis.columns else "Lote"
-                    medians = df_vis.dropna(subset=[selected_var]).groupby(lote_col_local)[selected_var].median()
-                    if not medians.empty:
-                        order = medians.sort_values().index.tolist()
-                        median_vals = medians.loc[order].values.tolist()
-                        fig_box.add_trace(
-                            go.Scatter(x=order, y=median_vals,
-                                       mode="lines+markers",
-                                       line=dict(color="#2ca02c", width=6),
-                                       marker=dict(size=10, color="#2ca02c"),
-                                       name="Mediana (por lote)",
-                                       hoverinfo="y+name")
+                    global_mean = df_vis[selected_var].dropna().mean() if selected_var in df_vis.columns else None
+                    if global_mean is not None and not np.isnan(global_mean):
+                        fig_box.add_hline(
+                            y=global_mean,
+                            line_dash="dash",
+                            line_color=COLORS["info"],
+                            line_width=3,
+                            annotation_text=f"Media global: {global_mean:.2f}",
+                            annotation_position="top right",
+                            annotation_font_size=11
                         )
-                        fig_box.update_xaxes(categoryorder="array", categoryarray=order)
                     fig_box.update_layout(height=420, margin=dict(t=30, b=120))
-                    st.plotly_chart(fig_box, width="stretch", key=sanitize_key(f"box_lote_tab_{selected_var}"))
+                    st.plotly_chart(fig_box, use_container_width=True, key=sanitize_key(f"box_lote_tab_{selected_var}"))
                 else:
                     st.info("No se pudo generar el boxplot.")
             except Exception as e:
-                st.error("Error al superponer medianas:")
+                st.error("Error al superponer media global:")
                 st.exception(e)
 
+    # --------- ESTADÍSTICAS GLOBALES ----------
     with top_right:
         st.markdown("#### Estadísticas Globales")
         try:
@@ -556,7 +592,7 @@ def render_tab_distribution(df_vis, selected_var, lote_col):
             if isinstance(stats_obj, pd.DataFrame):
                 st.table(stats_obj.reset_index(drop=True))
             elif isinstance(stats_obj, (go.Figure,)):
-                st.plotly_chart(stats_obj, width="stretch", key=sanitize_key(f"stats_global_tab_{selected_var}"))
+                st.plotly_chart(stats_obj, use_container_width=True, key=sanitize_key(f"stats_global_tab_{selected_var}"))
             else:
                 try:
                     df_stats = pd.DataFrame(stats_obj)
@@ -567,47 +603,39 @@ def render_tab_distribution(df_vis, selected_var, lote_col):
             st.error("Error generando estadísticas globales:")
             st.exception(e)
 
-    # --- BOTTOM ROW: Ranking (left) & Controles (right)
+    # --------- CONTROLES (estilo producción) ----------
     with bot_right:
-        st.markdown("#### Controles (Tab)")
-        top_n = st.number_input("Top N (ranking por lote)", min_value=3, max_value=200, value=10, step=1, key="topn_tab")
+        st.markdown("#### Controles")
+        # Top-N con select_slider (estilo producción)
+        top_n = st.select_slider("Tamaño del ranking:", options=RANKING_SIZES_LOCAL, value=10, key="topn_tab")
 
-        # Determinar variable para ranking:
-        # - Si selected_var está definido, lo usamos por defecto y ocultamos el select salvo que el usuario quiera elegir otra.
-        choose_other = False
-        if selected_var is not None and selected_var in df_vis.columns:
-            st.write(f"Variable seleccionada en sidebar: **{selected_var}** (usada por defecto para ranking)")
-            choose_other = st.checkbox("Elegir otra variable para el ranking", value=False, key="choose_other_rank")
-        else:
-            choose_other = True  # forzamos selección si no hay selected_var
-
+        # Preparar lista de variables numéricas disponibles como fallback
         options_ordered = st.session_state.get("numeric_cols", []).copy()
-        # Asegurar que pH aparezca primero si existe
-        if "pH" in options_ordered:
-            options_ordered.remove("pH")
-            options_ordered = ["pH"] + options_ordered
         if not options_ordered:
             options_ordered = [selected_var] if selected_var else []
 
-        if choose_other:
-            # mostrar selectbox para elegir variable de ranking
-            sel_index = 0 if len(options_ordered) > 0 else None
-            rank_var = st.selectbox("Variable para ranking (Top N)", options=options_ordered, index=sel_index if sel_index is not None else 0, key="rank_var_tab")
-        else:
+        # Usar únicamente la variable seleccionada en la barra lateral como variable de ranking.
+        if selected_var and selected_var in df_vis.columns:
             rank_var = selected_var
+            st.markdown(f"Variable para ranking: **{rank_var}**")
+        else:
+            # fallback: primera variable numérica disponible
+            rank_var = options_ordered[0] if options_ordered else None
+            st.markdown(f"Variable para ranking: **{rank_var or '—'}** (fallback)")
 
         st.markdown("Nota: el ranking utiliza promedio (mean) por lote.")
         st.markdown("---")
 
-        # Exportar Top-N: usamos un botón que lanza el download (si hay datos)
-        if st.button("Exportar Top‑N a CSV", key="export_topn_btn"):
-            df_export = generate_topn_df(df_vis, rank_var, top_n, lote_col)
-            if df_export is None or df_export.empty:
-                st.warning("No hay datos para exportar.")
-            else:
-                csv = df_export.to_csv(index=False).encode("utf-8")
-                st.download_button("Descargar CSV", csv, file_name=sanitize_key(f"topn_{rank_var}_{top_n}.csv"), mime="text/csv", key=sanitize_key(f"dl_topn_{rank_var}_{top_n}"))
+        # Pre-cálculo del Top-N para habilitar descarga inmediata si hay datos
+        df_export = generate_topn_df(df_vis, rank_var, top_n, lote_col)
+        if df_export is None or df_export.empty:
+            st.info("No hay datos suficientes para generar el ranking con la selección actual.")
+        else:
+            csv = df_export.to_csv(index=False).encode("utf-8")
+            dl_name = sanitize_key(f"topn_{rank_var}_{top_n}.csv")
+            st.download_button("⬇️ Descargar Top‑N (CSV)", csv, file_name=dl_name, mime="text/csv", key=sanitize_key(f"dl_topn_{rank_var}_{top_n}"))
 
+    # --------- RANKING TOP‑N (gráfico) ----------
     with bot_left:
         st.markdown("#### Ranking Top‑N por lote (promedio)")
         try:
@@ -615,7 +643,6 @@ def render_tab_distribution(df_vis, selected_var, lote_col):
             if df_rank.empty:
                 st.info("No hay suficientes datos para generar el ranking.")
             else:
-                # Horizontal bar chart: x = mean_val, y = Lote
                 df_rank_sorted = df_rank.sort_values("mean_val", ascending=True).reset_index(drop=True)
 
                 fig_rank = go.Figure()
@@ -623,7 +650,7 @@ def render_tab_distribution(df_vis, selected_var, lote_col):
                     x=df_rank_sorted["mean_val"],
                     y=df_rank_sorted["Lote"],
                     orientation='h',
-                    marker=dict(color="#2ca02c", line=dict(color="#1f7a1f", width=1.2)),
+                    marker=dict(color=COLORS["success"], line=dict(color="#1f7a1f", width=1.2)),
                     text=df_rank_sorted["mean_val"].round(3),
                     textposition="outside",
                     name=f"Top {top_n}"
@@ -639,33 +666,23 @@ def render_tab_distribution(df_vis, selected_var, lote_col):
                     bargap=0.25
                 )
 
-                # Si hay muchas barras, ajustar el tamaño del texto de las etiquetas
                 if len(df_rank_sorted) > 15:
                     fig_rank.update_traces(textposition="inside", insidetextanchor="middle")
                     fig_rank.update_layout(height=30 * len(df_rank_sorted))
 
-                st.plotly_chart(fig_rank, width="stretch", key=sanitize_key(f"rank_topn_{rank_var}_{top_n}"))
+                st.plotly_chart(fig_rank, use_container_width=True, key=sanitize_key(f"rank_topn_{rank_var}_{top_n}"))
         except Exception as e:
             st.error("Error generando gráfico de ranking:")
             st.exception(e)
 
 def render_tab_correlations(df_vis):
-    """
-    Heatmap único + selector de grupo usando callbacks para actualizar st.session_state
-    - Selectbox para elegir un grupo de DIMENSIONES_CORR o 'Custom'
-    - Botón 'Aplicar grupo' que rellena el multiselect con las columnas del grupo (via on_click)
-    - Heatmap único basado en las columnas del multiselect
-    - Descarga CSV de la matriz de correlación
-    """
     st.markdown('<div class="section-title">🔗 Correlaciones</div>', unsafe_allow_html=True)
 
-    # asegurar lista numérica en session_state (inicializar antes del widget)
     numeric_cols = st.session_state.get("numeric_cols")
     if not numeric_cols:
         numeric_cols = df_vis.select_dtypes(include=[np.number]).columns.tolist()
         st.session_state["numeric_cols"] = numeric_cols
 
-    # preparar grupos desde DIMENSIONES_CORR (filtrados a columnas existentes y numéricas)
     grupos_validos = []
     grupos_cols = {}
     for gname, cols in DIMENSIONES_CORR.items():
@@ -674,45 +691,42 @@ def render_tab_correlations(df_vis):
             grupos_validos.append(gname)
             grupos_cols[gname] = avail
 
-    # UI: selector de grupo y botón aplicar (usaremos callbacks)
-    st.markdown("Selecciona un grupo de variables de suelos o usa 'Custom' para elegir columnas manualmente.")
-    group_options = ["Custom"] + grupos_validos
-    sel_group = st.selectbox("Grupo de suelos", options=group_options, index=1 if grupos_validos else 0, key="corr_group_select")
+    if grupos_validos:
+        group_options = grupos_validos + ["Custom"]
+        default_group = grupos_validos[0]
+    else:
+        group_options = ["Custom"]
+        default_group = "Custom"
 
-    # Inicializar corr_cols_tab en session_state solo si no existe (ANTES del multiselect)
-    if "corr_cols_tab" not in st.session_state:
-        # por defecto todas las columnas numéricas (o las de pH primero si quieres)
-        st.session_state["corr_cols_tab"] = numeric_cols.copy()
+    if "corr_group_select" not in st.session_state:
+        st.session_state["corr_group_select"] = default_group
 
-    # Callback que aplica el grupo seleccionado (se ejecuta antes del rerun)
-    def _apply_group_callback(group_name, grupos_cols_local, numeric_cols_local):
-        if group_name == "Custom":
-            st.session_state["corr_cols_tab"] = numeric_cols_local.copy()
+    def _apply_group_callback():
+        sel = st.session_state.get("corr_group_select", default_group)
+        if sel == "Custom":
+            st.session_state["corr_cols_tab"] = st.session_state.get("corr_cols_tab", numeric_cols.copy())
         else:
-            st.session_state["corr_cols_tab"] = grupos_cols_local.get(group_name, []).copy()
+            st.session_state["corr_cols_tab"] = grupos_cols.get(sel, []).copy()
 
-    # Callback para resetear
-    def _reset_callback(numeric_cols_local):
-        st.session_state["corr_cols_tab"] = numeric_cols_local.copy()
+    st.selectbox("Grupo de suelos (selección automática):", options=group_options,
+                 index=0 if default_group == group_options[0] else 0,
+                 key="corr_group_select", on_change=_apply_group_callback)
 
-    # Botón 'Aplicar grupo' con on_click (no usar st.experimental_rerun)
-    st.button("Aplicar grupo", key=sanitize_key(f"apply_group_{sel_group}"),
-              on_click=_apply_group_callback, args=(sel_group, grupos_cols, numeric_cols))
+    if "corr_cols_tab" not in st.session_state:
+        if default_group != "Custom" and default_group in grupos_cols:
+            st.session_state["corr_cols_tab"] = grupos_cols[default_group].copy()
+        else:
+            st.session_state["corr_cols_tab"] = numeric_cols[:min(len(numeric_cols), 12)].copy()
 
-    st.button("Resetear selección a todas las columnas numéricas", key="reset_corr_cols_btn",
-              on_click=_reset_callback, args=(numeric_cols,))
-
-    # Mostrar multiselect para confirmar/ajustar columnas (se actualiza en el siguiente rerun)
     corr_cols = st.multiselect(
-        "Columnas para el heatmap de correlación",
+        "Columnas para el heatmap de correlación (ajusta si quieres):",
         options=numeric_cols,
-        default=st.session_state.get("corr_cols_tab", numeric_cols),
+        default=st.session_state.get("corr_cols_tab", []),
         key="corr_cols_tab"
     )
 
-    # Mostrar el heatmap único
-    if len(corr_cols) < 2:
-        st.info("Selecciona al menos 2 columnas para mostrar el heatmap de correlación.")
+    if not corr_cols or len(corr_cols) < 2:
+        st.info("Selecciona al menos 2 columnas del grupo o usa 'Custom' para elegir manualmente.")
         return
 
     sub_df = df_vis[corr_cols].select_dtypes(include=[np.number]).dropna(how="all")
@@ -721,30 +735,128 @@ def render_tab_correlations(df_vis):
         return
 
     corr = sub_df.corr()
-    fig = px.imshow(corr, color_continuous_scale="RdBu", zmin=-1, zmax=1, text_auto=".2f")
+    fig = px.imshow(corr, color_continuous_scale="RdBu", zmin=-1, zmax=1, text_auto=".2f",
+                    labels=dict(x="Variables", y="Variables", color="Correlación"))
     fig.update_layout(height=520, margin=dict(t=30, b=30, l=10, r=10))
-    st.plotly_chart(fig, width="stretch", key=sanitize_key("correlation_heatmap_single"))
+    st.plotly_chart(fig, width="stretch", key=sanitize_key("correlation_heatmap_selected"))
 
-    # botones de utilidad: descargar CSV
     st.download_button("Descargar matriz de correlación (CSV)", corr.round(3).to_csv().encode("utf-8"),
-                       file_name=sanitize_key("correlation_matrix_selected.csv"), mime="text/csv", key=sanitize_key("dl_corr_single"))
+                       file_name=sanitize_key("correlation_matrix_selected.csv"), mime="text/csv",
+                       key=sanitize_key("dl_corr_selected"))
 
-def render_tab_table(df_vis):
-    st.markdown('<div class="section-title">📋 Tabla filtrada y descarga</div>', unsafe_allow_html=True)
+def seccion_tabla_suelos(df, df_by_year, years_desc, year_sel):
+
+    st.markdown('<div class="section-title">📋 Tabla de suelos: filtrado y descarga</div>', unsafe_allow_html=True)
+
+    show_all = st.checkbox("Mostrar todos los años", value=False, key="suelos_show_all")
+    if show_all:
+        df_show = df.copy()
+    else:
+        if isinstance(df_by_year, dict):
+            df_show = df_by_year.get(year_sel, pd.DataFrame()).copy()
+        elif hasattr(df_by_year, "columns"):
+            ano_cols = [c for c in df_by_year.columns if any(k in c.lower() for k in ("ano","año","year"))]
+            if ano_cols:
+                ycol = ano_cols[0]
+                df_show = df_by_year[df_by_year[ycol].astype(str) == str(year_sel)].copy()
+            else:
+                df_show = df_by_year.copy()
+        else:
+            df_show = df.copy()
+
+    if df_show is None or df_show.empty:
+        st.warning("No hay datos de suelos para mostrar con los filtros actuales.")
+        return pd.DataFrame()
+
+    cols = list(df_show.columns)
+    def find_col(cands):
+        for cand in cands:
+            for c in cols:
+                if cand in c.lower():
+                    return c
+        return None
+
+    finca_col   = find_col(["finca", "farm"])
+    zona_col    = find_col(["zona", "zone", "sector", "area"])
+    lote_col    = find_col(["lote", "parcela", "parcel"])
+    material_col= find_col(["material", "materiale", "tipo"])
+    muestra_col = find_col(["muestra", "sample"])
+    ano_col     = find_col(["ano", "año", "year"])
+
+    c1, c2, c3 = st.columns(3)
+    def opts_for(col, label_all="Todos"):
+        if col and col in df_show.columns:
+            vals = sorted(df_show[col].dropna().astype(str).unique().tolist())
+            return [label_all] + vals
+        return [label_all]
+
+    finca_opts = opts_for(finca_col, "Todas")
+    zona_opts  = opts_for(zona_col, "Todas")
+    material_opts = opts_for(material_col, "Todos")
+
+    finca_sel = c1.selectbox("Filtrar por Finca:", finca_opts, key="suelos_finca")
+    zona_sel  = c2.selectbox("Filtrar por Zona:", zona_opts, key="suelos_zona")
+    mat_sel   = c3.selectbox("Filtrar por Material:", material_opts, key="suelos_material")
+
+    s1, s2 = st.columns([2,1])
+    search_label = "Buscar Lote/Parcela" if lote_col else ("Buscar Muestra" if muestra_col else "Buscar texto")
+    search_txt = s1.text_input(search_label, value="", key="suelos_search")
+    show_missing_ph = s2.checkbox("Mostrar filas con pH faltante", value=False, key="suelos_missing_ph")
+
+    df_filt = df_show.copy()
+    try:
+        if finca_col and finca_sel and finca_sel not in ("Todas",):
+            df_filt = df_filt[df_filt[finca_col].astype(str) == finca_sel]
+        if zona_col and zona_sel and zona_sel not in ("Todas",):
+            df_filt = df_filt[df_filt[zona_col].astype(str) == zona_sel]
+        if material_col and mat_sel and mat_sel not in ("Todos", "Todos"):
+            df_filt = df_filt[df_filt[material_col].astype(str) == mat_sel]
+        if search_txt:
+            if lote_col:
+                df_filt = df_filt[df_filt[lote_col].astype(str).str.contains(search_txt, case=False, na=False)]
+            elif muestra_col:
+                df_filt = df_filt[df_filt[muestra_col].astype(str).str.contains(search_txt, case=False, na=False)]
+            else:
+                mask = pd.Series(False, index=df_filt.index)
+                for c in df_filt.select_dtypes(include=["object", "string"]).columns:
+                    mask = mask | df_filt[c].astype(str).str.contains(search_txt, case=False, na=False)
+                df_filt = df_filt[mask]
+        if show_missing_ph:
+            ph_col = find_col(["ph"])
+            if ph_col:
+                df_filt = df_filt[df_filt[ph_col].isna() | (df_filt[ph_col].astype(str).str.strip()=="")]
+            else:
+                st.info("No detecté columna 'pH' en los datos.")
+    except Exception as e:
+        st.error(f"Error aplicando filtros: {e}")
+
+    sort_cols = []
+    if ano_col: sort_cols.append(ano_col)
+    if finca_col: sort_cols.append(finca_col)
+    if lote_col: sort_cols.append(lote_col)
+    if sort_cols:
+        existing = [c for c in sort_cols if c in df_filt.columns]
+        if existing:
+            df_filt = df_filt.sort_values(existing).reset_index(drop=True)
+
     with st.expander("Ver tabla (primeras 500 filas)"):
         try:
-            st.dataframe(df_vis.head(500))
+            st.dataframe(df_filt.head(500), use_container_width=True)
         except Exception:
-            st.error("No se pudo renderizar la tabla.")
+            st.error("No se pudo renderizar la tabla (posible problema de tipos/anchura).")
+
     try:
-        csv = df_vis.to_csv(index=False).encode("utf-8")
-        st.download_button("⬇️ Descargar CSV (filtrado)", csv, file_name="suelos_filtrados.csv", mime="text/csv", key="dl_table_filtered")
+        csv = df_filt.to_csv(index=False).encode("utf-8")
+        dl_name = f"suelos_filtrados_{str(year_sel)}.csv" if not show_all else "suelos_filtrados_todos_los_anos.csv"
+        st.download_button("⬇️ Descargar CSV (filtrado)", csv, file_name=dl_name, mime="text/csv", key="dl_suelos_filtrados")
     except Exception:
         st.error("Error preparando descarga CSV.")
 
-# ---------------------------
-# Sidebar renderer (main-like)
-# ---------------------------
+    return df_filt
+
+# ════════════════════════════════════════════════════
+# 4. SIDEBAR
+# ════════════════════════════════════════════════════
 
 def render_sidebar():
     with st.sidebar:
@@ -764,41 +876,43 @@ def render_sidebar():
         )
 
         st.markdown("---")
-        st.markdown("### ℹ️ Columnas recomendadas")
+        st.markdown("### ℹ️ Columnas requeridas")
         st.markdown("""
-        - Finca (finca, farm, hacienda)
-        - Lote (lote, parcela, plot)
-        - Lat / Lon (latitud, longitud)
-        - Prof (profundidad, depth)
-        - pH, MO, CIC, Ca, Mg, K, Na, P, Fe, Mn, Zn, etc.
+        | Interno           | Variantes aceptadas |
+        |-------------------|---------------------|
+        | finca             | finca, farm, hacienda |
+        | lote              | lote, parcela, plot, codigo_lote |
+        | latitud           | lat, latitude, latitud |
+        | longitud          | lon, longitude, longitud |
+        | profundidad       | prof, profundidad, prof_cm, depth |
+        | pH                | ph |
+        | materia_organica  | mo, materia_organica, organic_matter |
+        | CIC               | cic, capacidad_intercambio_cationes |
+        | Ca                | ca, calcio |
+        | Mg                | mg, magnesio |
+        | K                 | k, potasio |
+        | Na                | na, sodio |
+        | P                 | p, fosforo |
+        | Fe                | fe, hierro |
+        | Mn                | mn, manganeso |
+        | Zn                | zn, zinc |
+        | textura           | arena, limo, arcilla, textura |
+        | fecha / año       | fecha, date, ano, año |
         """)
 
     return uploaded
 
-# ---------------------------
-# KPIs simple (seccion_kpis)
-# ---------------------------
-def seccion_kpis(df):
-    # muestra KPIs simples en la parte superior similar al main de producción
-    c1, c2, c3, c4 = st.columns(4)
-    n = df.shape[0]
-    n_fincas = df["Finca"].nunique() if "Finca" in df.columns else 0
-    n_lotes = df["Lote"].nunique() if "Lote" in df.columns else 0
-    c1.markdown(f"<div class='kpi-card'><div class='kpi-label'>Registros</div><div class='kpi-value'>{n}</div></div>", unsafe_allow_html=True)
-    c2.markdown(f"<div class='kpi-card'><div class='kpi-label'>Fincas</div><div class='kpi-value'>{n_fincas}</div></div>", unsafe_allow_html=True)
-    c3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Lotes</div><div class='kpi-value'>{n_lotes}</div></div>", unsafe_allow_html=True)
+# ════════════════════════════════════════════════════
+# 5. MAIN
+# ════════════════════════════════════════════════════
 
-# ---------------------------
-# Main: orquesta todo
-# ---------------------------
 def main():
     uploaded = render_sidebar()
 
-    # Header
     st.markdown(f"""
     <div class="main-header">
         <h1>🌴 Dashboard Suelos — Farmprecision</h1>
-        <p>Mapa, densidad, correlaciones y análisis por variable · Versión modular</p>
+        <p>Mapa, densidad, correlaciones y análisis por variable</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -819,7 +933,6 @@ def main():
         c3.info("🔗 Correlaciones y tabla filtrada")
         return
 
-    # Cargar y preparar
     with st.spinner("⏳ Procesando datos..."):
         try:
             df, gdf, detected_colmap = cargar_suelos(uploaded)
@@ -834,7 +947,6 @@ def main():
         st.warning("⚠️ El archivo no contiene datos válidos después del filtrado.")
         return
 
-    # Actualizar sesión y detectar columnas
     colmap = detected_colmap.copy()
     for k in ("lat","lon","prof","finca","lote"):
         if k not in colmap:
@@ -860,7 +972,6 @@ def main():
     finca_col = colmap.get("finca", _find_col_ci(list(df.columns), COMMON_FARMS))
     lote_col = colmap.get("lote", _find_col_ci(list(df.columns), COMMON_LOTES))
 
-    # build gdf fallback
     gdf2 = None
     if lat_col and lon_col and lat_col in df.columns and lon_col in df.columns:
         try:
@@ -872,7 +983,6 @@ def main():
     numeric_cols = [c for c in numeric_cols if c not in [lat_col, lon_col]]
     st.session_state["numeric_cols"] = numeric_cols
 
-    # variable principal: pH first if exists
     ordered_numeric = numeric_cols.copy()
     if "pH" in ordered_numeric:
         ordered_numeric.remove("pH"); ordered_numeric = ["pH"] + ordered_numeric
@@ -880,14 +990,12 @@ def main():
     selected_var = st.sidebar.selectbox("Variable principal", options=ordered_numeric, index=0 if ordered_numeric else None, key="selected_var_sidebar")
     map_mode = st.sidebar.selectbox("Modo mapa", options=["Puntos", "Densidad"], key="map_mode_sidebar")
 
-    # filtros globales
     st.sidebar.markdown("Filtros globales")
     finca_vals = sorted(df[finca_col].dropna().astype(str).unique().tolist()) if finca_col and finca_col in df.columns else []
     filter_finca = st.sidebar.multiselect("Finca", options=["Todas"] + finca_vals, default=["Todas"]) if finca_vals else None
     lote_vals = sorted(df[lote_col].dropna().astype(str).unique().tolist()) if lote_col and lote_col in df.columns else []
     filter_lote = st.sidebar.multiselect("Lote", options=["Todos"] + lote_vals, default=["Todos"]) if lote_vals else None
 
-    # aplicar filtros
     df_vis = df.copy()
     if filter_finca and "Todas" not in filter_finca:
         df_vis = df_vis[df_vis[finca_col].astype(str).isin(filter_finca)]
@@ -896,14 +1004,30 @@ def main():
 
     st.session_state["df_suelos"] = df
     st.session_state["gdf_suelos"] = gdf2
-    st.session_state["available_soil_vars"] = [k for k in VARIABLES_SUELO_MAP.keys() if k in df.columns and pd.api.types.is_numeric_dtype(df[k])]
+    st.session_state["available_soil_vars"] = [k for k in VARIABLES_SUELO_MAP.keys() if
+                                               k in df.columns and pd.api.types.is_numeric_dtype(df[k])]
     st.sidebar.write(f"Filas (filtradas): {df_vis.shape[0]}")
 
-    # Sección KPIs
     seccion_kpis(df_vis)
     st.markdown("---")
 
-    # Tabs (como en producción)
+    possible_year_cols = [c for c in df_vis.columns if any(k in c.lower() for k in ("ano", "año", "year"))]
+    if possible_year_cols:
+        year_col = possible_year_cols[0]
+        # normalizar a entero cuando sea posible
+        years = pd.to_numeric(df_vis[year_col], errors="coerce").dropna().astype(int).unique().tolist()
+        years = sorted([int(y) for y in years])
+        years_desc = sorted(years, reverse=True)
+        df_by_year = {int(y): df_vis[df_vis[year_col].astype(float).astype(int) == int(y)].copy() for y in years}
+        # selector en sidebar para la tabla (por defecto el año más reciente)
+        year_sel = st.sidebar.selectbox("Año para tabla de suelos", options=years_desc, index=0,
+                                        key="suelos_table_year")
+    else:
+        year_col = None
+        years_desc = []
+        df_by_year = df_vis
+        year_sel = None
+
     tab1, tab2, tab3, tab4 = st.tabs([
         "🗺️ Mapa y Distribución",
         "📊 Análisis por lote",
@@ -921,7 +1045,7 @@ def main():
         render_tab_correlations(df_vis)
 
     with tab4:
-        render_tab_table(df_vis)
+        seccion_tabla_suelos(df_vis, df_by_year, years_desc, year_sel)
 
 if __name__ == "__main__":
     main()
