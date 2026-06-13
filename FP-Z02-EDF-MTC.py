@@ -174,13 +174,16 @@ def _clean_col_name(col):
     return s
 
 @st.cache_data(show_spinner=False)
-def cargar_suelos(file_or_path):
-    """Lee y normaliza un Excel de suelos. Retorna (df, gdf, colmap)."""
-    if hasattr(file_or_path, "read"):
-        raw = file_or_path.read()
-        df = pd.read_excel(io.BytesIO(raw), engine="openpyxl")
+def cargar_suelos(file_bytes: bytes, file_name: str = "") -> tuple:
+    """Lee y normaliza un Excel o CSV de suelos. Retorna (df, gdf, colmap)."""
+    is_csv = isinstance(file_name, str) and file_name.lower().endswith(".csv")
+    if is_csv:
+        try:
+            df = pd.read_csv(io.BytesIO(file_bytes), sep=None, engine="python", dtype=object)
+        except Exception:
+            df = pd.read_csv(io.BytesIO(file_bytes), sep=",", dtype=object)
     else:
-        df = pd.read_excel(file_or_path, engine="openpyxl")
+        df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
 
     orig_cols = list(df.columns)
     new_cols = [_clean_col_name(c) for c in orig_cols]
@@ -207,10 +210,17 @@ def cargar_suelos(file_or_path):
 
     if rename_map: df = df.rename(columns=rename_map)
 
-    required = ["Finca", "Lote", "Longitud", "Latitud", "Prof"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"Faltan columnas requeridas: {missing}. Columnas detectadas: {list(df.columns)}")
+    # Para CSV, lat/lon/prof son opcionales (puede no tener coordenadas)
+    required_strict = ["Finca", "Lote"]
+    required_geo    = ["Longitud", "Latitud", "Prof"]
+    missing_strict  = [c for c in required_strict if c not in df.columns]
+    if missing_strict:
+        raise ValueError(f"Faltan columnas requeridas: {missing_strict}. Columnas detectadas: {list(df.columns)}")
+    missing_geo = [c for c in required_geo if c not in df.columns]
+    if missing_geo:
+        # Añadir columnas vacías para que el resto del pipeline no falle
+        for c in missing_geo:
+            df[c] = np.nan
 
     df["Latitud"] = pd.to_numeric(df["Latitud"].astype(str).str.replace(",", "."), errors="coerce")
     df["Longitud"] = pd.to_numeric(df["Longitud"].astype(str).str.replace(",", "."), errors="coerce")
@@ -870,9 +880,9 @@ def render_sidebar():
 
         st.markdown("### 📂 Cargar datos")
         uploaded = st.file_uploader(
-            "Sube tu archivo Excel (.xlsx)",
-            type=["xlsx", "xls"],
-            help="El archivo debe contener columnas de finca, lote, año, siembra, material, área y ton/ha.",
+            "Sube tu archivo Excel o CSV",
+            type=["xlsx", "xls", "csv"],
+            help="El archivo debe contener columnas de finca, lote, latitud, longitud, profundidad y variables de suelo.",
         )
 
         st.markdown("---")
@@ -919,9 +929,9 @@ def main():
     if uploaded is None:
         st.markdown("""
         <div class="upload-zone">
-            <h3>📂 Sube tu archivo Excel para comenzar</h3>
+            <h3>📂 Sube tu archivo Excel o CSV para comenzar</h3>
             <p>Usa el panel lateral para cargar el archivo de suelos.</p>
-            <p><strong>Formatos soportados:</strong> .xlsx · .xls</p>
+            <p><strong>Formatos soportados:</strong> .xlsx · .xls · .csv</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -933,9 +943,13 @@ def main():
         c3.info("🔗 Correlaciones y tabla filtrada")
         return
 
+    # Leer bytes una sola vez y cachear por nombre+tamaño
+    file_bytes = uploaded.read()
+    file_name  = uploaded.name
+
     with st.spinner("⏳ Procesando datos..."):
         try:
-            df, gdf, detected_colmap = cargar_suelos(uploaded)
+            df, gdf, detected_colmap = cargar_suelos(file_bytes, file_name)
         except ValueError as e:
             st.error(f"❌ Error al cargar el archivo:\n\n{e}")
             return
